@@ -1,4 +1,5 @@
 import org.apache.commons.lang3.StringUtils;
+import org.apache.commons.lang3.tuple.Pair;
 
 import java.util.*;
 
@@ -9,7 +10,7 @@ public class Account {
 
     private String name;
     private final Map<String, Long> accountBalance;
-    private final Deque<Account> history;
+    private final Deque<Object> history;
 
     public Account(String name) {
         checkName(name);
@@ -30,7 +31,7 @@ public class Account {
 
     public void setName(String name) {
         checkName(name);
-        save();
+        history.addLast(this.name);
         this.name = name;
     }
 
@@ -48,11 +49,10 @@ public class Account {
 
     public void updateAccountBalance(String currency, Long balance) {
         try {
-            save();
             if (balance < 0) throw new IllegalArgumentException("Колличество валюты не может быть отрицательным.");
             Valuta.valueOf(currency);
+            history.addLast(this.getAccountBalance());
             accountBalance.put(currency, balance);
-
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(e.getMessage());
         } catch (NullPointerException e) {
@@ -62,9 +62,14 @@ public class Account {
 
     public void undo() {
         try {
-            this.name = history.getLast().getName();
-            this.accountBalance.clear();
-            this.accountBalance.putAll(history.getLast().getAccountBalance());
+            Object object = history.getLast();
+            if (object instanceof String) {
+                this.name = (String) object;
+            } else if (object instanceof Map) {
+                Map<String, Long> map = (Map<String, Long>) history.getLast();
+                this.accountBalance.clear();
+                this.accountBalance.putAll(map);
+            }
             history.removeLast();
         } catch (NoSuchElementException e) {
             throw new NoSuchElementException(String.format("Изменений банковского счета открытого на имя %s - нет.", this.name));
