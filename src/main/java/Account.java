@@ -1,6 +1,8 @@
+import lombok.Getter;
 import org.apache.commons.lang3.StringUtils;
-import org.apache.commons.lang3.tuple.Pair;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 
 /**
@@ -9,29 +11,20 @@ import java.util.*;
 public class Account {
 
     private String name;
-    private final Map<String, Long> accountBalance;
-    private final Deque<Object> history;
+    private final Map<Valuta, Long> accountBalance;
+    private final Deque<UndoService> history;
 
     public Account(String name) {
         checkName(name);
         this.name = name;
         this.accountBalance = new HashMap<>();
-        this.history = new LinkedList<>();
-    }
-
-    private Account(String name, Map<String, Long> accountBalance) {
-        this.name = name;
-        Map<String, Long> accBal = new HashMap<>();
-        for(String key : accountBalance.keySet()) {
-            accBal.put(key, accountBalance.get(key));
-        }
-        this.accountBalance = accBal;
-        this.history = null;
+        this.history = new ArrayDeque<>();
     }
 
     public void setName(String name) {
         checkName(name);
-        history.addLast(this.name);
+        String tmp = this.name;
+        history.push(() -> Account.this.name = tmp);
         this.name = name;
     }
 
@@ -39,20 +32,20 @@ public class Account {
         return name;
     }
 
-    public Map<String, Long> getAccountBalance() {
-        Map<String, Long> accountBalance = new HashMap<>();
-        for(String key : this.accountBalance.keySet()) {
-            accountBalance.put(key, this.accountBalance.get(key));
-        }
-        return accountBalance;
+    public Map<Valuta, Long> getAccountBalance() {
+        return new HashMap<Valuta, Long>(accountBalance);
     }
 
     public void updateAccountBalance(String currency, Long balance) {
         try {
             if (balance < 0) throw new IllegalArgumentException("Колличество валюты не может быть отрицательным.");
-            Valuta.valueOf(currency);
-            history.addLast(this.getAccountBalance());
-            accountBalance.put(currency, balance);
+            Long tmp = accountBalance.get(Valuta.valueOf(currency));
+            if (tmp != null) {
+                history.push(() -> Account.this.accountBalance.put(Valuta.valueOf(currency), tmp));
+            } else {
+                history.push(() -> Account.this.accountBalance.remove(Valuta.valueOf(currency)));
+            }
+            accountBalance.put(Valuta.valueOf(currency), balance);
         } catch (IllegalArgumentException e) {
             throw new IllegalArgumentException(e.getMessage());
         } catch (NullPointerException e) {
@@ -62,24 +55,14 @@ public class Account {
 
     public void undo() {
         try {
-            Object object = history.getLast();
-            if (object instanceof String) {
-                this.name = (String) object;
-            } else if (object instanceof Map) {
-                Map<String, Long> map = (Map<String, Long>) history.getLast();
-                this.accountBalance.clear();
-                this.accountBalance.putAll(map);
-            }
-            history.removeLast();
+            history.pop().make();
         } catch (NoSuchElementException e) {
             throw new NoSuchElementException(String.format("Изменений банковского счета открытого на имя %s - нет.", this.name));
         }
     }
 
-    public Account save() {
-        Account account = new Account(this.name, this.accountBalance);
-        history.addLast(account);
-        return account;
+    public AccountHistory save() {
+        return new AccountHistory(this.name, this.accountBalance);
     }
 
     private void checkName(String name) {
@@ -88,11 +71,39 @@ public class Account {
         }
     }
 
+    public class AccountHistory {
+        @Getter
+        private final String dateTime;
+        @Getter
+        private final String name;
+
+        private final Map<Valuta, Long> accountBalance;
+
+        public AccountHistory(String name, Map<Valuta, Long> accountBalance) {
+            this.dateTime = LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            this.name = name;
+            this.accountBalance = new HashMap<>(accountBalance);
+        }
+
+        public Map<Valuta, Long> getAccountBalance() {
+            return new HashMap<>(accountBalance);
+        }
+
+        public Account load() {
+            Account account = new Account(name);
+            for (Valuta k : accountBalance.keySet()) {
+                account.updateAccountBalance(k.name(), accountBalance.get(k));
+            }
+            return account;
+        }
+
+    }
+
     public enum Valuta {
         RUB,
         USD,
         EUR,
         TRY,
-        JPY
+        JPY;
     }
 }
